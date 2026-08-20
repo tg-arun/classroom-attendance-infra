@@ -13,6 +13,15 @@ resource "aws_lb" "main" {
   # Rejects malformed headers instead of passing them to the backend.
   drop_invalid_header_fields = true
   idle_timeout               = 60
+  enable_deletion_protection = var.enable_deletion_protection
+
+  # Per request logs, for the questions metrics cannot answer: which client,
+  # which path, which target was slow.
+  access_logs {
+    bucket  = aws_s3_bucket.access_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
 
   tags = {
     Name = "${var.project}-alb"
@@ -43,10 +52,53 @@ resource "aws_lb_target_group" "web" {
   }
 }
 
-resource "aws_lb_listener" "http" {
+# Listeners
+#
+# With a certificate: HTTPS on 443, and 80 only exists to redirect to it.
+# Without one: plain HTTP on 80. Two small resources rather than one clever
+# conditional, so each is obvious on its own.
+
+resource "aws_lb_listener" "http_forward" {
+  count = var.certificate_arn == "" ? 1 : 0
+
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.web.arn
+  }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  count = var.certificate_arn == "" ? 0 : 1
+
+  load_balancer_arn = aws_lb.main.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  count = var.certificate_arn == "" ? 0 : 1
+
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  certificate_arn   = var.certificate_arn
+
+  # TLS 1.2 as the floor, 1.3 preferred.
+  ssl_policy = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
     type             = "forward"

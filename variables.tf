@@ -68,3 +68,21 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "certificate_arn" {
+  description = "ACM certificate ARN. Set it and the load balancer serves HTTPS and redirects port 80 to it. Empty means plain HTTP, which is only acceptable for a review environment."
+  type        = string
+  default     = ""
+}
+
+variable "enable_deletion_protection" {
+  description = "Stops the load balancer being deleted by accident. Turn this on for production."
+  type        = bool
+  default     = false
+}
+
+variable "access_logs_retention_days" {
+  description = "How long to keep load balancer access logs."
+  type        = number
+  default     = 30
+}

@@ -25,6 +25,18 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   ip_protocol       = "tcp"
 }
 
+# Only exists when a certificate is configured - see alb.tf.
+resource "aws_vpc_security_group_ingress_rule" "alb_https" {
+  count = var.certificate_arn == "" ? 0 : length(var.allowed_http_cidrs)
+
+  security_group_id = aws_security_group.alb.id
+  description       = "HTTPS from allowed clients"
+  cidr_ipv4         = var.allowed_http_cidrs[count.index]
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
 resource "aws_vpc_security_group_egress_rule" "alb_to_web" {
   security_group_id            = aws_security_group.alb.id
   description                  = "Forward requests to the web tier"
