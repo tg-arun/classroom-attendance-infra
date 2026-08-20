@@ -50,17 +50,40 @@ The load balancer is the only thing with a public address. Everything else is
 reachable only from it, or not at all.
 
 
-| File | What it holds |
-|------|---------------|
-| `network.tf` | VPC, public/private subnets, internet and NAT gateways |
-| `security.tf` | Security groups for the load balancer and the web tier |
-| `iam.tf` | Task execution and task roles - ECS Exec instead of SSH |
-| `ecs.tf` | Cluster, task definition and service |
-| `alb.tf` | Load balancer, target group, listeners |
-| `access_logs.tf` | S3 bucket for load balancer access logs |
-| `scaling.tf` | Application Auto Scaling target and policy |
-| `observability.tf` | SLO alarms, alert topic, dashboard |
-| `bootstrap/` | One-off stack that creates the S3 bucket holding Terraform state |
+### Repository layout
+
+```
+modules/
+  network/         VPC, subnets, NAT, routes
+  service/         security groups, ALB, ECS cluster/task/service, scaling, access logs
+  observability/   SLO alarms, alert topic, dashboard
+environments/
+  dev/             calls the three modules with dev numbers
+  prod/            calls the same three modules with prod numbers
+bootstrap/         one-off stack that creates the S3 state bucket
+tests/             smoke test and k6 load test
+```
+
+The modules are split where the **lifecycle and ownership** differ, not per
+resource type. The network changes about once a year, the service changes
+weekly, and the alarms are the part another service would reuse first. A module
+per resource - a "VPC module" wrapping a VPC - would be indirection with no
+reuse behind it.
+
+`environments/dev` and `environments/prod` are the two callers that make the
+split worth having. Each is a short file of literal values, so reading one tells
+you exactly what that environment is:
+
+| | dev | prod |
+|---|---|---|
+| AZs | 2 | 3 |
+| Tasks | 2 to 12 | 6 to 24 |
+| Deletion protection | off | on |
+| Log retention | 30 days | 90 days |
+
+Each environment keeps its own state file (`attendance/dev/…`,
+`attendance/prod/…`) in the same bucket, so an apply against dev can never touch
+prod.
 
 ## How a change reaches production
 
@@ -73,27 +96,29 @@ flowchart TB
     end
 
     subgraph change["Every change"]
-        c1["Edit a .tf file"]
+        c1["Edit a module"]
         c2["Pull request"]
-        c3["CI: fmt, validate, trivy scan"]
-        c4["terraform test<br/>plan assertions, nothing created"]
+        c3["CI: fmt, validate every<br/>module and environment, trivy"]
+        c4["Module unit tests<br/>plan only, nothing created"]
         c5["Merge to main"]
-        c6["terraform apply<br/>state locked in S3"]
+        c6["apply in environments/dev<br/>state locked in S3"]
         c7["ECS rolling deploy<br/>100% healthy, auto rollback"]
         c8["tests/smoke_test.sh<br/>is it serving?"]
         c9["k6 load test<br/>holds 6,000 req/s?"]
-        c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7 --> c8 --> c9
+        c10["apply in environments/prod<br/>same module, prod numbers"]
+        c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7 --> c8 --> c9 --> c10
     end
 
     slo["SLO alarms keep watching<br/>success rate and latency"]
 
     b2 -.->|"backend.hcl"| c6
-    c9 --> slo
+    c10 --> slo
 ```
 
 Each step is cheaper than the one after it, so the fast checks fail first. The
-plan tests cost nothing and need no infrastructure; the load test is the only
-one that needs a running environment.
+module tests cost nothing and need no infrastructure; the load test is the only
+one that needs a running environment. Prod runs the same module code that dev
+just proved, with different numbers.
 
 ## Meeting 6,000 req/s
 
@@ -162,21 +187,25 @@ things worth looking at during an incident.
 Three layers, cheapest first:
 
 ```bash
-terraform fmt -check && terraform validate   # syntax and types
-terraform test                               # plan-time assertions, no cost
-./tests/smoke_test.sh                        # is it actually serving?
+terraform fmt -check -recursive              # formatting
+terraform -chdir=modules/network test        # module unit tests, no cost
+terraform -chdir=modules/service test
+./tests/smoke_test.sh http://<alb-dns>       # is it actually serving?
 k6 run -e URL=http://<alb-dns> tests/load_test.js   # does it hold 6,000 req/s?
 ```
 
-`tests/plan.tftest.hcl` asserts the properties that matter rather than the whole
-plan: at least two AZs, ELB-based health checks, an internet-facing load
-balancer, IMDSv2 required, enough maximum capacity, and that setting a
-certificate really does switch port 80 to a redirect. The k6 thresholds are
+The module tests are real unit tests: the service module is planned with
+placeholder subnet ids, so it needs no VPC and creates nothing. They assert the
+properties that matter rather than the whole plan - tasks get no public IP,
+targets register by IP, a deploy never drops below 100% healthy, a failed deploy
+rolls back, capacity can exceed 6,000 req/s, and setting a certificate really
+does switch port 80 to a redirect. The k6 thresholds are
 the SLOs themselves, so a green load test is evidence, not an assumption.
 
-`terraform fmt`, `validate` and a Trivy misconfiguration scan run in CI
-(`.github/workflows/terraform.yml`). The scan is advisory today; it becomes a
-merge gate once its findings are triaged.
+CI (`.github/workflows/terraform.yml`) formats, then initialises and validates
+**every module and every environment** in turn, then runs a Trivy
+misconfiguration scan. The scan is advisory today; it becomes a merge gate once
+its findings are triaged.
 
 ## State
 
@@ -186,8 +215,9 @@ State lives in **S3**, with locking and encryption on:
 s3://classroom-attendance-tfstate-<account-id>/attendance/terraform.tfstate
 ```
 
-The bucket is created by the `bootstrap/` stack rather than by this one, because
-a stack cannot store its own state in a bucket it has not created yet. That
+One state file per environment, so an apply against dev cannot touch prod. The
+bucket is created by the `bootstrap/` stack rather than by an environment,
+because a stack cannot store its own state in a bucket it has not created yet. That
 stack keeps local state on purpose - it is four resources that are trivial to
 recreate or import, and it changes about once a year.
 
@@ -210,15 +240,20 @@ First time only, create the state bucket:
 cd bootstrap && terraform init && terraform apply
 ```
 
-Then point the root stack at it and deploy:
+Then deploy an environment. Every command runs from that environment's
+directory, which is what stops an apply meant for dev reaching prod:
 
 ```bash
-echo "bucket = \"$(cd bootstrap && terraform output -raw state_bucket)\"" > backend.hcl
+cd environments/dev
+cp backend.hcl.example backend.hcl     # fill in the bucket name
 terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
-./tests/smoke_test.sh
+../../tests/smoke_test.sh
 ```
+
+Promoting a change to prod is the same commands in `environments/prod`, against
+the same module code.
 
 Application changes roll out through the task definition. ECS starts the new
 tasks before draining the old ones, and the deployment circuit breaker rolls
@@ -259,9 +294,10 @@ Small things that are easy to miss and expensive to learn the hard way:
 - **HTTP by default, HTTPS supported.** The 443 listener and the redirect are
   written and tested; they switch on with `certificate_arn`. The exercise gives
   no domain to issue a certificate for, so the default stays HTTP.
-- **Flat file layout, no modules.** One environment, one stack. Modules earn
-  their keep when a second environment appears; before that they add indirection
-  without removing duplication.
+- **Three modules, not one per resource.** The split follows lifecycle and
+  ownership, and exists because there are two callers. A single module per
+  resource type would add a layer to read through without removing any
+  duplication.
 - **The state bucket is a separate stack with local state.** Someone has to go
   first, and a bucket that changes yearly does not belong in the stack that
   changes daily.

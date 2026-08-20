@@ -1,7 +1,7 @@
 name: terraform
 
-# Formatting, validation and the plan tests run on every change, so review
-# comments are about design rather than about typos.
+# Formatting, validation and the module unit tests run on every change, so
+# review comments are about design rather than about typos.
 
 on:
   push:
@@ -22,11 +22,15 @@ jobs:
       - name: Check formatting
         run: terraform fmt -check -recursive
 
-      - name: Initialise without a backend
-        run: terraform init -backend=false
-
+      # Every module and every environment has to stand up on its own.
       - name: Validate
-        run: terraform validate
+        run: |
+          for dir in modules/* environments/* bootstrap; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" init -backend=false
+            terraform -chdir="$dir" validate
+            echo "::endgroup::"
+          done
 
       # Static analysis for misconfigurations (public buckets, open security
       # groups, unencrypted volumes). Advisory for now; flip exit-code to 1
@@ -39,7 +43,9 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 0
 
-      # terraform test needs read-only AWS credentials to run a plan.
+      # The module tests run a plan, which needs read-only AWS credentials.
       # Credentials come from GitHub OIDC, never from a checked-in secret.
-      # - name: Plan tests
-      #   run: terraform test
+      # - name: Module tests
+      #   run: |
+      #     terraform -chdir=modules/network test
+      #     terraform -chdir=modules/service test
