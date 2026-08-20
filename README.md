@@ -40,6 +40,7 @@ two SLOs directly.
 | `alb.tf` | Load balancer, target group, listener |
 | `autoscaling.tf` | Auto Scaling group and the scaling policy |
 | `observability.tf` | SLO alarms, alert topic, dashboard |
+| `bootstrap/` | One-off stack that creates the S3 bucket holding Terraform state |
 
 ## Meeting 6,000 req/s
 
@@ -114,10 +115,43 @@ the SLOs themselves, so a green load test is evidence, not an assumption.
 `terraform fmt`, `validate` and the plan tests also run in CI
 (`.github/workflows/terraform.yml`).
 
+## State
+
+State lives in **S3**, with locking and encryption on:
+
+```
+s3://classroom-attendance-tfstate-<account-id>/attendance/terraform.tfstate
+```
+
+The bucket is created by the `bootstrap/` stack rather than by this one, because
+a stack cannot store its own state in a bucket it has not created yet. That
+stack keeps local state on purpose - it is four resources that are trivial to
+recreate or import, and it changes about once a year.
+
+The bucket has versioning (a bad apply can be rolled back), AES256 encryption
+(state holds resource attributes in plaintext), public access fully blocked, a
+policy rejecting non-TLS requests, and a lifecycle rule expiring old versions
+after 90 days.
+
+Locking uses S3's native `use_lockfile`, which writes a lock object beside the
+state file. The DynamoDB lock table that older setups use is no longer needed.
+
+The bucket name embeds the AWS account id, so it is **not** committed - it goes
+in `backend.hcl`, which is gitignored. `backend.hcl.example` shows the format.
+
 ## Deploying
 
+First time only, create the state bucket:
+
 ```bash
-terraform init
+cd bootstrap && terraform init && terraform apply
+```
+
+Then point the root stack at it and deploy:
+
+```bash
+echo "bucket = \"$(cd bootstrap && terraform output -raw state_bucket)\"" > backend.hcl
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ./tests/smoke_test.sh
@@ -138,8 +172,9 @@ deploy does not spend error budget.
 - **Flat file layout, no modules.** One environment, one stack. Modules earn
   their keep when a second environment appears; before that they add indirection
   without removing duplication.
-- **Remote state is commented out**, since the backend bucket has a different
-  lifecycle from this stack and does not exist in the review account.
+- **The state bucket is a separate stack with local state.** Someone has to go
+  first, and a bucket that changes yearly does not belong in the stack that
+  changes daily.
 
 ## Next steps
 

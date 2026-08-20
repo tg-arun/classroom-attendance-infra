@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.6"
+  required_version = ">= 1.11"
 
   required_providers {
     aws = {
@@ -8,15 +8,17 @@ terraform {
     }
   }
 
-  # Remote state is intentionally left as a comment: the backend bucket and the
-  # DynamoDB lock table live outside this stack (they have a different lifecycle).
-  # In a real account this would be uncommented and pointed at that bucket.
+  # State lives in S3. The bucket name is account specific, so it is passed at
+  # init time instead of being committed:
   #
-  # backend "s3" {
-  #   bucket         = "classroom-attendance-tfstate"
-  #   key            = "attendance/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "classroom-attendance-tflock"
-  #   encrypt        = true
-  # }
+  #   terraform init -backend-config=backend.hcl
+  #
+  # use_lockfile puts the lock next to the state object in S3. The old
+  # DynamoDB lock table is no longer needed.
+  backend "s3" {
+    key          = "attendance/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
