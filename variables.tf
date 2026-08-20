@@ -33,28 +33,46 @@ variable "az_count" {
   }
 }
 
-variable "instance_type" {
-  description = "EC2 instance type for the nginx web tier."
+variable "container_image" {
+  description = "Image to run. Pinned to a version on purpose - :latest would let a scale-out event change what is running."
   type        = string
-  default     = "c6i.large"
+  default     = "nginx:1.27-alpine"
 }
 
-variable "min_size" {
-  description = "Minimum number of web instances (one per AZ at least)."
+variable "task_cpu" {
+  description = "CPU units per task. 1024 = 1 vCPU."
+  type        = number
+  default     = 1024
+}
+
+variable "task_memory" {
+  description = "Memory per task in MiB. Fargate only allows certain pairings with task_cpu."
+  type        = number
+  default     = 2048
+}
+
+variable "min_tasks" {
+  description = "Minimum running tasks (at least one per AZ)."
   type        = number
   default     = 2
 }
 
-variable "max_size" {
-  description = "Maximum number of web instances the ASG may scale to."
+variable "max_tasks" {
+  description = "Maximum tasks the service may scale to."
   type        = number
   default     = 12
 }
 
 variable "requests_per_target" {
-  description = "Target tracking goal: requests per instance per minute. See README for the 6,000 req/s maths."
+  description = "Target tracking goal: requests per task per minute. See README for the 6,000 req/s maths."
   type        = number
   default     = 60000
+}
+
+variable "log_retention_days" {
+  description = "How long to keep container logs in CloudWatch."
+  type        = number
+  default     = 30
 }
 
 variable "allowed_http_cidrs" {
