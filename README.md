@@ -37,7 +37,8 @@ two SLOs directly.
 | `security.tf` | Security groups for the load balancer and the web tier |
 | `iam.tf` | Instance role - SSM access instead of SSH keys |
 | `compute.tf` | Launch template: Amazon Linux 2023 + nginx |
-| `alb.tf` | Load balancer, target group, listener |
+| `alb.tf` | Load balancer, target group, listeners |
+| `access_logs.tf` | S3 bucket for load balancer access logs |
 | `autoscaling.tf` | Auto Scaling group and the scaling policy |
 | `observability.tf` | SLO alarms, alert topic, dashboard |
 | `bootstrap/` | One-off stack that creates the S3 bucket holding Terraform state |
@@ -95,6 +96,11 @@ things worth looking at during an incident.
   stolen role credentials.
 - **Encrypted EBS volumes** and `drop_invalid_header_fields` on the load
   balancer.
+- **TLS is one variable away.** Set `certificate_arn` and the load balancer
+  serves HTTPS on 443 with a TLS 1.2 floor, and port 80 becomes a 301 redirect.
+  It ships off by default only because this exercise has no domain to certify.
+- **Access logs** go to a private, encrypted bucket that rejects non-TLS
+  requests, kept for 30 days.
 
 ## Testing
 
@@ -109,11 +115,13 @@ k6 run -e URL=http://<alb-dns> tests/load_test.js   # does it hold 6,000 req/s?
 
 `tests/plan.tftest.hcl` asserts the properties that matter rather than the whole
 plan: at least two AZs, ELB-based health checks, an internet-facing load
-balancer, IMDSv2 required, and enough maximum capacity. The k6 thresholds are
+balancer, IMDSv2 required, enough maximum capacity, and that setting a
+certificate really does switch port 80 to a redirect. The k6 thresholds are
 the SLOs themselves, so a green load test is evidence, not an assumption.
 
-`terraform fmt`, `validate` and the plan tests also run in CI
-(`.github/workflows/terraform.yml`).
+`terraform fmt`, `validate` and a Trivy misconfiguration scan run in CI
+(`.github/workflows/terraform.yml`). The scan is advisory today; it becomes a
+merge gate once its findings are triaged.
 
 ## State
 
@@ -161,14 +169,33 @@ Application changes roll out through the launch template. The Auto Scaling group
 uses a rolling instance refresh that keeps 90% of the fleet in service, so a
 deploy does not spend error budget.
 
+
+## Deliberate production details
+
+Small things that are easy to miss and expensive to learn the hard way:
+
+- **Terraform does not manage `desired_capacity`.** If it did, any apply during
+  a busy period would reset the fleet to `min_size` and drop traffic on the
+  floor. Scaling owns it at runtime; `ignore_changes` keeps the two from
+  fighting.
+- **The Auto Scaling group waits for the NAT route.** Without that dependency
+  the first instances can launch before they have egress, fail to install nginx,
+  and get replaced - a slow, confusing first apply.
+- **A 180 second health check grace period**, long enough to boot and install
+  before the first failed check counts.
+- **`prevent_destroy` on the state bucket**, because deleting it would orphan
+  every resource in the stack.
+- **Rolling instance refresh at 90% healthy**, so a deploy cannot spend the
+  error budget it is supposed to protect.
+
 ## Trade-offs I made deliberately
 
 - **One NAT gateway, not one per AZ.** It costs less and is not in the request
   path - it only carries package installs and SSM traffic. If an instance ever
   needs egress to serve a request, this becomes a per-AZ resource.
-- **HTTP, not HTTPS.** TLS needs a domain and an ACM certificate, which the
-  exercise does not provide. In production the listener would be :443 with an
-  ACM certificate and a :80 redirect - about ten lines.
+- **HTTP by default, HTTPS supported.** The 443 listener and the redirect are
+  written and tested; they switch on with `certificate_arn`. The exercise gives
+  no domain to issue a certificate for, so the default stays HTTP.
 - **Flat file layout, no modules.** One environment, one stack. Modules earn
   their keep when a second environment appears; before that they add indirection
   without removing duplication.
@@ -180,8 +207,10 @@ deploy does not spend error budget.
 
 Given more than the suggested two to three hours, in priority order:
 
-1. TLS at the load balancer (ACM + Route 53) and a redirect from :80.
-2. ALB access logs to S3, for per-request debugging when metrics are not enough.
-3. Scheduled scaling ahead of known daily peaks.
-4. A third AZ, and per-AZ NAT gateways if egress becomes request critical.
-5. AWS WAF in front of the load balancer for rate limiting and common exploits.
+1. A golden AMI built with Packer. Today each instance installs nginx at boot,
+   so a package mirror outage delays scale-out exactly when it is needed most.
+2. Scheduled scaling ahead of known daily peaks, since reactive scaling takes
+   two to three minutes.
+3. AWS WAF in front of the load balancer for rate limiting and common exploits.
+4. VPC flow logs, and shipping access logs into Athena for querying.
+5. A third AZ, and per-AZ NAT gateways if egress becomes request critical.
