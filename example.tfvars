@@ -5,10 +5,12 @@ project     = "classroom-attendance"
 environment = "dev"
 region      = "ap-south-1"
 
-az_count      = 2
-instance_type = "c6i.large"
-min_size      = 2
-max_size      = 12
+az_count        = 2
+container_image = "nginx:1.27-alpine"
+task_cpu        = 1024
+task_memory     = 2048
+min_tasks       = 2
+max_tasks       = 12
 
 # Send SLO alerts somewhere real before going to production.
 alert_email = ""
