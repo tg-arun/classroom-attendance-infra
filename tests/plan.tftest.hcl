@@ -12,13 +12,18 @@ run "defaults_are_highly_available" {
   }
 
   assert {
-    condition     = aws_autoscaling_group.web.min_size >= 2
-    error_message = "Losing one instance must not take the service down."
+    condition     = aws_appautoscaling_target.web.min_capacity >= 2
+    error_message = "Losing one task must not take the service down."
   }
 
   assert {
-    condition     = aws_autoscaling_group.web.health_check_type == "ELB"
-    error_message = "Health must be judged by the load balancer, not just by EC2."
+    condition     = aws_ecs_service.web.deployment_minimum_healthy_percent == 100
+    error_message = "A deploy must never drop below the capacity already in service."
+  }
+
+  assert {
+    condition     = aws_ecs_service.web.deployment_circuit_breaker[0].rollback
+    error_message = "A failed deploy must roll itself back."
   }
 }
 
@@ -36,8 +41,13 @@ run "load_balancer_is_the_only_public_entrypoint" {
   }
 
   assert {
-    condition     = aws_launch_template.web.metadata_options[0].http_tokens == "required"
-    error_message = "Instances must require IMDSv2."
+    condition     = aws_ecs_service.web.network_configuration[0].assign_public_ip == false
+    error_message = "Tasks must not be given public IP addresses."
+  }
+
+  assert {
+    condition     = aws_lb_target_group.web.target_type == "ip"
+    error_message = "Fargate tasks are registered by IP, not by instance."
   }
 }
 
@@ -45,13 +55,13 @@ run "scales_beyond_the_required_throughput" {
   command = plan
 
   variables {
-    max_size = 12
+    max_tasks = 12
   }
 
-  # 12 instances x 1,000 req/s per instance = 12,000 req/s, double the 6,000
-  # req/s requirement.
+  # 12 tasks x 1,000 req/s per task = 12,000 req/s, double the 6,000 req/s
+  # requirement.
   assert {
-    condition     = aws_autoscaling_group.web.max_size * 1000 >= 6000
+    condition     = aws_appautoscaling_target.web.max_capacity * 1000 >= 6000
     error_message = "Maximum capacity must leave headroom above 6,000 req/s."
   }
 }

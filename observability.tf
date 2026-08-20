@@ -172,6 +172,22 @@ resource "aws_cloudwatch_dashboard" "slo" {
         width  = 12
         height = 6
         properties = {
+          title  = "Task CPU and memory"
+          region = var.region
+          view   = "timeSeries"
+          stat   = "Average"
+          period = 60
+          metrics = [
+            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.web.name],
+            ["AWS/ECS", "MemoryUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.web.name]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        properties = {
           title  = "Healthy targets"
           region = var.region
           view   = "timeSeries"
