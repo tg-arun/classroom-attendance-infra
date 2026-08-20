@@ -11,3 +11,6 @@ crash.log
 .DS_Store
 .idea/
 .vscode/
+
+# Backend config carries the account-specific bucket name
+backend.hcl
