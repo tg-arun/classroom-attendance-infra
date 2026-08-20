@@ -9,27 +9,45 @@ two SLOs directly.
 
 ## Architecture
 
-```
-                    Internet
-                       |
-                       v
-            +----------------------+
-            |  Application Load    |   public subnets, one per AZ
-            |  Balancer  (:80)     |   only thing with a public address
-            +----------------------+
-                 |            |
-        AZ a     v            v    AZ b
-   +--------------+      +--------------+
-   |  nginx EC2   |      |  nginx EC2   |   private subnets
-   |  (ASG)       |      |  (ASG)       |   no public IP, no SSH
-   +--------------+      +--------------+
-                 |            |
-                 +-----+------+
-                       v
-                 NAT gateway  ->  package installs, SSM
+```mermaid
+flowchart TB
+    client(["Clients - 6,000 req/s"])
+    oncall(["On-call"])
 
-   CloudWatch  <- ALB metrics ->  alarms -> SNS topic -> email / pager
+    subgraph aws["AWS - ap-south-1"]
+        subgraph vpc["VPC 10.0.0.0/16"]
+            subgraph public["Public subnets - one per AZ"]
+                alb["Application Load Balancer<br/>:443 or :80<br/>health check every 10s"]
+                nat["NAT gateway"]
+            end
+            subgraph private["Private subnets - no public IP, no SSH"]
+                web1["nginx<br/>AZ a"]
+                web2["nginx<br/>AZ b"]
+            end
+            asg["Auto Scaling group<br/>2 to 12 instances"]
+        end
+        cw["CloudWatch metrics"]
+        sns["SNS topic"]
+        logs[("S3 - access logs")]
+    end
+
+    client -->|"HTTPS"| alb
+    alb --> web1
+    alb --> web2
+    web1 -.->|"package installs, SSM"| nat
+    web2 -.-> nat
+    alb -.-> logs
+    alb -.->|"requests, latency, 5xx"| cw
+    cw -->|"requests per target"| asg
+    asg -->|"launch / terminate"| web1
+    asg --> web2
+    cw -->|"5xx above 0.1%<br/>p99.9 above 300ms"| sns
+    sns --> oncall
 ```
+
+The load balancer is the only thing with a public address. Everything else is
+reachable only from it, or not at all.
+
 
 | File | What it holds |
 |------|---------------|
@@ -42,6 +60,39 @@ two SLOs directly.
 | `autoscaling.tf` | Auto Scaling group and the scaling policy |
 | `observability.tf` | SLO alarms, alert topic, dashboard |
 | `bootstrap/` | One-off stack that creates the S3 bucket holding Terraform state |
+
+## How a change reaches production
+
+```mermaid
+flowchart TB
+    subgraph once["Once per account"]
+        b1["cd bootstrap<br/>terraform apply"]
+        b2[("S3 state bucket<br/>versioned, encrypted, locked")]
+        b1 --> b2
+    end
+
+    subgraph change["Every change"]
+        c1["Edit a .tf file"]
+        c2["Pull request"]
+        c3["CI: fmt, validate, trivy scan"]
+        c4["terraform test<br/>plan assertions, nothing created"]
+        c5["Merge to main"]
+        c6["terraform apply<br/>state locked in S3"]
+        c7["ASG rolling refresh<br/>90% stay in service"]
+        c8["tests/smoke_test.sh<br/>is it serving?"]
+        c9["k6 load test<br/>holds 6,000 req/s?"]
+        c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7 --> c8 --> c9
+    end
+
+    slo["SLO alarms keep watching<br/>success rate and latency"]
+
+    b2 -.->|"backend.hcl"| c6
+    c9 --> slo
+```
+
+Each step is cheaper than the one after it, so the fast checks fail first. The
+plan tests cost nothing and need no infrastructure; the load test is the only
+one that needs a running environment.
 
 ## Meeting 6,000 req/s
 
