@@ -24,7 +24,7 @@ resource "aws_cloudwatch_metric_alarm" "error_rate" {
   alarm_name          = "${var.project}-slo-error-rate"
   alarm_description   = "5xx rate above 0.1% - burning the 99.9% success SLO."
   comparison_operator = "GreaterThanThreshold"
-  threshold           = 0.1
+  threshold           = var.error_rate_threshold
   evaluation_periods  = 2
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
@@ -45,7 +45,7 @@ resource "aws_cloudwatch_metric_alarm" "error_rate" {
       metric_name = "RequestCount"
       stat        = "Sum"
       period      = 60
-      dimensions  = { LoadBalancer = aws_lb.main.arn_suffix }
+      dimensions  = { LoadBalancer = var.alb_arn_suffix }
     }
   }
 
@@ -57,7 +57,7 @@ resource "aws_cloudwatch_metric_alarm" "error_rate" {
       metric_name = "HTTPCode_Target_5XX_Count"
       stat        = "Sum"
       period      = 60
-      dimensions  = { LoadBalancer = aws_lb.main.arn_suffix }
+      dimensions  = { LoadBalancer = var.alb_arn_suffix }
     }
   }
 
@@ -69,7 +69,7 @@ resource "aws_cloudwatch_metric_alarm" "error_rate" {
       metric_name = "HTTPCode_ELB_5XX_Count"
       stat        = "Sum"
       period      = 60
-      dimensions  = { LoadBalancer = aws_lb.main.arn_suffix }
+      dimensions  = { LoadBalancer = var.alb_arn_suffix }
     }
   }
 }
@@ -83,13 +83,13 @@ resource "aws_cloudwatch_metric_alarm" "latency" {
   period              = 60
   evaluation_periods  = 2
   comparison_operator = "GreaterThanThreshold"
-  threshold           = 0.3
+  threshold           = var.latency_threshold_seconds
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
   ok_actions          = [aws_sns_topic.alerts.arn]
 
   dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
+    LoadBalancer = var.alb_arn_suffix
   }
 }
 
@@ -107,8 +107,8 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 
   dimensions = {
-    LoadBalancer = aws_lb.main.arn_suffix
-    TargetGroup  = aws_lb_target_group.web.arn_suffix
+    LoadBalancer = var.alb_arn_suffix
+    TargetGroup  = var.target_group_arn_suffix
   }
 }
 
@@ -129,7 +129,7 @@ resource "aws_cloudwatch_dashboard" "slo" {
           stat   = "Sum"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.main.arn_suffix]
+            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix]
           ]
         }
       },
@@ -144,10 +144,10 @@ resource "aws_cloudwatch_dashboard" "slo" {
           stat   = "p99.9"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.main.arn_suffix]
+            ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", var.alb_arn_suffix]
           ]
           annotations = {
-            horizontal = [{ label = "SLO", value = 0.3 }]
+            horizontal = [{ label = "SLO", value = var.latency_threshold_seconds }]
           }
         }
       },
@@ -162,8 +162,8 @@ resource "aws_cloudwatch_dashboard" "slo" {
           stat   = "Sum"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.main.arn_suffix],
-            ["AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", "LoadBalancer", aws_lb.main.arn_suffix]
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", var.alb_arn_suffix],
+            ["AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", "LoadBalancer", var.alb_arn_suffix]
           ]
         }
       },
@@ -178,8 +178,8 @@ resource "aws_cloudwatch_dashboard" "slo" {
           stat   = "Average"
           period = 60
           metrics = [
-            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.web.name],
-            ["AWS/ECS", "MemoryUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.web.name]
+            ["AWS/ECS", "CPUUtilization", "ClusterName", var.cluster_name, "ServiceName", var.service_name],
+            ["AWS/ECS", "MemoryUtilization", "ClusterName", var.cluster_name, "ServiceName", var.service_name]
           ]
         }
       },
@@ -194,7 +194,7 @@ resource "aws_cloudwatch_dashboard" "slo" {
           stat   = "Minimum"
           period = 60
           metrics = [
-            ["AWS/ApplicationELB", "HealthyHostCount", "LoadBalancer", aws_lb.main.arn_suffix, "TargetGroup", aws_lb_target_group.web.arn_suffix]
+            ["AWS/ApplicationELB", "HealthyHostCount", "LoadBalancer", var.alb_arn_suffix, "TargetGroup", var.target_group_arn_suffix]
           ]
         }
       }

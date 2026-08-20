@@ -1,36 +1,26 @@
 variable "project" {
   description = "Name prefix used for every resource."
   type        = string
-  default     = "classroom-attendance"
-}
-
-variable "environment" {
-  description = "Environment name (dev / staging / prod)."
-  type        = string
-  default     = "dev"
 }
 
 variable "region" {
-  description = "AWS region to deploy into."
+  description = "Region, used for the log driver configuration."
   type        = string
-  default     = "ap-south-1"
 }
 
-variable "vpc_cidr" {
-  description = "CIDR block for the VPC."
+variable "vpc_id" {
+  description = "VPC to run in."
   type        = string
-  default     = "10.0.0.0/16"
 }
 
-variable "az_count" {
-  description = "How many Availability Zones to spread across."
-  type        = number
-  default     = 2
+variable "public_subnet_ids" {
+  description = "Subnets for the load balancer."
+  type        = list(string)
+}
 
-  validation {
-    condition     = var.az_count >= 2
-    error_message = "At least 2 AZs are required to survive the loss of one AZ."
-  }
+variable "private_subnet_ids" {
+  description = "Subnets for the tasks."
+  type        = list(string)
 }
 
 variable "container_image" {
@@ -64,39 +54,33 @@ variable "max_tasks" {
 }
 
 variable "requests_per_target" {
-  description = "Target tracking goal: requests per task per minute. See README for the 6,000 req/s maths."
+  description = "Target tracking goal: requests per task per minute. See the README for the 6,000 req/s maths."
   type        = number
   default     = 60000
+}
+
+variable "allowed_http_cidrs" {
+  description = "Who may reach the load balancer."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "certificate_arn" {
+  description = "ACM certificate ARN. Set it and the load balancer serves HTTPS and redirects port 80 to it."
+  type        = string
+  default     = ""
+}
+
+variable "enable_deletion_protection" {
+  description = "Stops the load balancer being deleted by accident."
+  type        = bool
+  default     = false
 }
 
 variable "log_retention_days" {
   description = "How long to keep container logs in CloudWatch."
   type        = number
   default     = 30
-}
-
-variable "allowed_http_cidrs" {
-  description = "Who may reach the load balancer. Narrow this down for non-public environments."
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "alert_email" {
-  description = "Optional email address that receives SLO alerts. Leave empty to skip the subscription."
-  type        = string
-  default     = ""
-}
-
-variable "certificate_arn" {
-  description = "ACM certificate ARN. Set it and the load balancer serves HTTPS and redirects port 80 to it. Empty means plain HTTP, which is only acceptable for a review environment."
-  type        = string
-  default     = ""
-}
-
-variable "enable_deletion_protection" {
-  description = "Stops the load balancer being deleted by accident. Turn this on for production."
-  type        = bool
-  default     = false
 }
 
 variable "access_logs_retention_days" {

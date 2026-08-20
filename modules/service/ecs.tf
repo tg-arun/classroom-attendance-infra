@@ -1,5 +1,9 @@
 # The service
 #
+# Tasks need the NAT route to exist before they can pull the image. That
+# dependency now lives at the call site as depends_on = [module.network],
+# because the route table is no longer in this module.
+#
 # nginx runs as a Fargate task: no EC2 instances, no AMI to patch, no packages
 # installed at boot. The image is pinned to a version rather than :latest, so a
 # scale-out event cannot quietly change what is running.
@@ -72,7 +76,7 @@ resource "aws_ecs_service" "web" {
   enable_execute_command = true
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    subnets          = var.private_subnet_ids
     security_groups  = [aws_security_group.web.id]
     assign_public_ip = false
   }
@@ -96,9 +100,6 @@ resource "aws_ecs_service" "web" {
     enable   = true
     rollback = true
   }
-
-  # Tasks need the NAT route before they can pull the image.
-  depends_on = [aws_route_table_association.private]
 
   # Scaling owns the task count at runtime - see the note in scaling.tf.
   lifecycle {

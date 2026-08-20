@@ -7,7 +7,7 @@
 resource "aws_security_group" "alb" {
   name        = "${var.project}-alb-sg"
   description = "Allows inbound HTTP to the load balancer"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   tags = {
     Name = "${var.project}-alb-sg"
@@ -49,7 +49,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_web" {
 resource "aws_security_group" "web" {
   name        = "${var.project}-web-sg"
   description = "nginx tasks - only reachable from the load balancer"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = var.vpc_id
 
   tags = {
     Name = "${var.project}-web-sg"

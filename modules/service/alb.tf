@@ -8,7 +8,7 @@ resource "aws_lb" "main" {
   load_balancer_type = "application"
   internal           = false
   security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  subnets            = var.public_subnet_ids
 
   # Rejects malformed headers instead of passing them to the backend.
   drop_invalid_header_fields = true
@@ -32,7 +32,7 @@ resource "aws_lb_target_group" "web" {
   name     = "${var.project}-tg"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = var.vpc_id
 
   # Fargate tasks get their own ENI, so targets are registered by IP.
   target_type = "ip"
