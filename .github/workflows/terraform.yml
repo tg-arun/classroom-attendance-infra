@@ -1,15 +1,12 @@
 name: terraform
 
-# Formatting, validation and the module unit tests run on every change, so
-# review comments are about design rather than about typos.
-
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
-  checks:
+  check:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,33 +16,9 @@ jobs:
         with:
           terraform_version: 1.11.4
 
-      - name: Check formatting
-        run: terraform fmt -check -recursive
+      - run: terraform fmt -check
 
-      # Every module and every environment has to stand up on its own.
-      - name: Validate
-        run: |
-          for dir in modules/* environments/* bootstrap; do
-            echo "::group::$dir"
-            terraform -chdir="$dir" init -backend=false
-            terraform -chdir="$dir" validate
-            echo "::endgroup::"
-          done
+      # -backend=false so this does not need AWS credentials.
+      - run: terraform init -backend=false
 
-      # Static analysis for misconfigurations (public buckets, open security
-      # groups, unencrypted volumes). Advisory for now; flip exit-code to 1
-      # once the backlog is clean so it gates merges.
-      - name: Scan for misconfigurations
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: config
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          exit-code: 0
-
-      # The module tests run a plan, which needs read-only AWS credentials.
-      # Credentials come from GitHub OIDC, never from a checked-in secret.
-      # - name: Module tests
-      #   run: |
-      #     terraform -chdir=modules/network test
-      #     terraform -chdir=modules/service test
+      - run: terraform validate

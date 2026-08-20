@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Smoke test: is the service actually serving after a deploy?
+# Is the service actually serving after a deploy?
 #
-#   ./tests/smoke_test.sh http://my-alb        # test a given URL
-#   cd environments/dev && ../../tests/smoke_test.sh   # or read it from state
-#
-# Exits non-zero on the first failure so CI can gate a deploy on it.
+#   ./tests/smoke_test.sh                 # reads the URL from terraform output
+#   ./tests/smoke_test.sh http://my-alb   # or pass one in
 
 set -euo pipefail
 

@@ -1,8 +1,0 @@
-# Copy to backend.hcl and fill in the bucket created by the bootstrap stack:
-#
-#   cd ../../bootstrap && terraform output state_bucket
-#
-# backend.hcl is gitignored - the bucket name embeds the AWS account id, which
-# does not belong in a public repository.
-
-bucket = "classroom-attendance-infra-tfstate"
