@@ -34,6 +34,9 @@ resource "aws_lb_target_group" "web" {
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
+  # Fargate tasks get their own ENI, so targets are registered by IP.
+  target_type = "ip"
+
   # Connections finish quickly here, so we do not need a long drain window.
   deregistration_delay = 30
 

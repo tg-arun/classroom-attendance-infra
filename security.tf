@@ -1,7 +1,7 @@
 # Security groups
 #
 # The only thing exposed to the internet is the load balancer on port 80.
-# Instances accept traffic from the load balancer's security group and nothing
+# Tasks accept traffic from the load balancer's security group and nothing
 # else - there is no SSH port and no key pair anywhere in this stack.
 
 resource "aws_security_group" "alb" {
@@ -48,7 +48,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_web" {
 
 resource "aws_security_group" "web" {
   name        = "${var.project}-web-sg"
-  description = "nginx instances - only reachable from the load balancer"
+  description = "nginx tasks - only reachable from the load balancer"
   vpc_id      = aws_vpc.main.id
 
   tags = {
@@ -65,10 +65,11 @@ resource "aws_vpc_security_group_ingress_rule" "web_from_alb" {
   ip_protocol                  = "tcp"
 }
 
-# Outbound is needed to install nginx and to reach the SSM endpoints.
+# Outbound is needed to pull the container image and to reach the ECS and
+# CloudWatch endpoints.
 resource "aws_vpc_security_group_egress_rule" "web_egress" {
   security_group_id = aws_security_group.web.id
-  description       = "Outbound for package installs and SSM"
+  description       = "Outbound for image pulls, logs and ECS Exec"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
