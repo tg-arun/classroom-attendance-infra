@@ -14,3 +14,7 @@ crash.log
 
 # Backend config carries the account-specific bucket name
 backend.hcl
+
+# Lock files belong to the directories terraform actually runs in
+# (environments, bootstrap, and the modules that have tests)
+modules/observability/.terraform.lock.hcl
