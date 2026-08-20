@@ -1,0 +1,34 @@
+name: terraform
+
+# Formatting, validation and the plan tests run on every change, so review
+# comments are about design rather than about typos.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialise without a backend
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      # terraform test needs read-only AWS credentials to run a plan.
+      # Credentials come from GitHub OIDC, never from a checked-in secret.
+      # - name: Plan tests
+      #   run: terraform test
