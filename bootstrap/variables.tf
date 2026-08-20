@@ -7,5 +7,5 @@ variable "project" {
 variable "region" {
   description = "Region for the state bucket. Keep it the same as the stack it serves."
   type        = string
-  default     = "us-east-1"
+  default     = "ap-south-1"
 }

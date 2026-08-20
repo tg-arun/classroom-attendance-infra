@@ -3,7 +3,7 @@
 
 project     = "classroom-attendance"
 environment = "dev"
-region      = "us-east-1"
+region      = "ap-south-1"
 
 az_count      = 2
 instance_type = "c6i.large"

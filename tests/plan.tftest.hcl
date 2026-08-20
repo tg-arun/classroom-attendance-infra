@@ -60,7 +60,7 @@ run "certificate_turns_on_https_and_redirects_http" {
   command = plan
 
   variables {
-    certificate_arn = "arn:aws:acm:us-east-1:111122223333:certificate/test"
+    certificate_arn = "arn:aws:acm:ap-south-1:111122223333:certificate/test"
   }
 
   assert {
