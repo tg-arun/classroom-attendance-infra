@@ -55,3 +55,26 @@ run "scales_beyond_the_required_throughput" {
     error_message = "Maximum capacity must leave headroom above 6,000 req/s."
   }
 }
+
+run "certificate_turns_on_https_and_redirects_http" {
+  command = plan
+
+  variables {
+    certificate_arn = "arn:aws:acm:us-east-1:111122223333:certificate/test"
+  }
+
+  assert {
+    condition     = length(aws_lb_listener.https) == 1
+    error_message = "A certificate must produce an HTTPS listener."
+  }
+
+  assert {
+    condition     = aws_lb_listener.http_redirect[0].default_action[0].type == "redirect"
+    error_message = "Port 80 must redirect to HTTPS once a certificate exists."
+  }
+
+  assert {
+    condition     = length(aws_lb_listener.http_forward) == 0
+    error_message = "Plain HTTP must not be served when a certificate is configured."
+  }
+}

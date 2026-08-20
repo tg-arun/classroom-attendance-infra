@@ -28,6 +28,17 @@ jobs:
       - name: Validate
         run: terraform validate
 
+      # Static analysis for misconfigurations (public buckets, open security
+      # groups, unencrypted volumes). Advisory for now; flip exit-code to 1
+      # once the backlog is clean so it gates merges.
+      - name: Scan for misconfigurations
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 0
+
       # terraform test needs read-only AWS credentials to run a plan.
       # Credentials come from GitHub OIDC, never from a checked-in secret.
       # - name: Plan tests
